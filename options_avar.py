@@ -64,13 +64,46 @@ def clean_price(p) -> float | None:
     return f if (not math.isnan(f) and f > 0) else None
 
 
-def calc_avar(prices: list) -> float | None:
+def calc_avar(
+    spot: float,
+    r: float,
+    T: float,
+    sel_strikes: list,
+    c_prices: list,
+    p_prices: list,
+) -> float | None:
     """
-    AVAR = population variance of all valid option prices.
-    Returns None if fewer than 2 valid prices exist.
+    AVAR using the spreadsheet's model-free implied variance methodology.
+
+    Forward price F = spot * e^(r*T).
+
+    Integrand per strike:
+        K > F  (OTM calls): (K - F)² * C(K) / K²
+        K < F  (OTM puts):  (F - K)² * P(K) / K²
+        K ≈ F  (ATM):       0  (weight is zero)
+
+    AVAR = (Sum_Call - Sum_Put) / (Sum_Call + Sum_Put)
+
+    The prefactor 2*e^(rT) / (T * F²) is identical for both sums and
+    cancels in the ratio, so only the raw integrand sums are needed.
     """
-    valid = [p for p in prices if p is not None]
-    return float(np.var(valid)) if len(valid) >= 2 else None
+    F = spot * math.exp(r * T)
+
+    sum_call = 0.0
+    sum_put  = 0.0
+
+    for K, C, P in zip(sel_strikes, c_prices, p_prices):
+        if K > F and C is not None:
+            sum_call += (K - F) ** 2 * C / K ** 2
+        elif K < F and P is not None:
+            sum_put  += (F - K) ** 2 * P / K ** 2
+        # K ≈ F → zero weight, skip
+
+    total = sum_call + sum_put
+    if total == 0:
+        return None
+
+    return (sum_call - sum_put) / total
 
 
 # ─── Per-symbol calculation ────────────────────────────────────────────────────
@@ -139,7 +172,7 @@ def get_avar_for_symbol(symbol: str, r: float) -> float | None:
     c_prices = [clean_price(c_map.get(k)) for k in sel_strikes]
     p_prices = [clean_price(p_map.get(k)) for k in sel_strikes]
 
-    return calc_avar(c_prices + p_prices)
+    return calc_avar(spot, r, T, sel_strikes, c_prices, p_prices)
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
