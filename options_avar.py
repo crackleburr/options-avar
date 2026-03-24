@@ -175,6 +175,21 @@ def get_avar_for_symbol(symbol: str, r: float) -> float | None:
     return calc_avar(spot, r, T, sel_strikes, c_prices, p_prices)
 
 
+# ─── Strategy recommendation ──────────────────────────────────────────────────
+
+def recommend_strategy(avar: float) -> str:
+    if avar < -0.15:
+        return "Sell puts / put credit spread (rich downside premium)"
+    elif avar < -0.05:
+        return "Bull put spread (modest downside skew)"
+    elif avar <= 0.05:
+        return "Iron condor / straddle (balanced variance)"
+    elif avar <= 0.15:
+        return "Bear call spread (modest upside skew)"
+    else:
+        return "Sell calls / call credit spread (rich upside premium)"
+
+
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def load_symbols(path: str) -> list[str]:
@@ -209,13 +224,14 @@ def main() -> None:
         print()
 
     # ── Summary table ─────────────────────────────────────────────────────────
-    bar = "─" * 30
+    bar = "─" * 72
     print(bar)
-    print(f"  {'Symbol':<10}  {'AVAR':>12}")
+    print(f"  {'Symbol':<10}  {'AVAR':>10}  {'Recommended Strategy'}")
     print(bar)
     for symbol, avar in results:
         avar_str = f"{avar:.6f}" if avar is not None else "N/A"
-        print(f"  {symbol:<10}  {avar_str:>12}")
+        strategy = recommend_strategy(avar) if avar is not None else "N/A"
+        print(f"  {symbol:<10}  {avar_str:>10}  {strategy}")
     print(bar)
 
 
