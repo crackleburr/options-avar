@@ -101,17 +101,19 @@ def calc_avar(
 
     total = sum_call + sum_put
     if total == 0:
-        return None
+        return None, False
 
-    return (sum_call - sum_put) / total
+    one_sided = sum_call == 0 or sum_put == 0
+    return (sum_call - sum_put) / total, one_sided
 
 
 # ─── Per-symbol calculation ────────────────────────────────────────────────────
 
-def get_avar_for_symbol(symbol: str, r: float) -> float | None:
+def get_avar_for_symbol(symbol: str, r: float) -> tuple[float | None, bool]:
     """
-    Fetch option data for *symbol* and return its AVAR, or None on failure.
-    Prints status lines prefixed with the symbol name.
+    Fetch option data for *symbol* and return (AVAR, one_sided).
+    one_sided=True means all strikes fell on one side of the forward price,
+    making the AVAR unreliable. Returns (None, False) on data errors.
     """
     ticker = yf.Ticker(symbol)
 
@@ -119,12 +121,12 @@ def get_avar_for_symbol(symbol: str, r: float) -> float | None:
         spot = fetch_spot(ticker)
     except Exception:
         print(f"  [{symbol}] ERROR: could not retrieve spot price.")
-        return None
+        return None, False
 
     exps = ticker.options
     if not exps:
         print(f"  [{symbol}] ERROR: no listed options found.")
-        return None
+        return None, False
 
     today = datetime.now().strftime("%Y-%m-%d")
     exp = exps[0]
@@ -135,7 +137,7 @@ def get_avar_for_symbol(symbol: str, r: float) -> float | None:
         chain = ticker.option_chain(exp)
     except Exception as exc:
         print(f"  [{symbol}] ERROR: failed to load option chain: {exc}")
-        return None
+        return None, False
 
     calls = chain.calls.copy()
     puts  = chain.puts.copy()
@@ -161,7 +163,7 @@ def get_avar_for_symbol(symbol: str, r: float) -> float | None:
         atm_idx = next(i for i, k in enumerate(all_strikes) if math.isclose(k, atm_k))
     except StopIteration:
         print(f"  [{symbol}] ERROR: could not locate ATM strike.")
-        return None
+        return None, False
 
     lo          = max(0, atm_idx - 5)
     hi          = min(len(all_strikes) - 1, atm_idx + 5)
@@ -211,14 +213,15 @@ def main() -> None:
     r = fetch_risk_free_rate()
     print(f"Risk-free rate : {r:.2%}\n")
 
-    results: list[tuple[str, float | None]] = []
+    results: list[tuple[str, float | None, bool]] = []
 
     for symbol in symbols:
         print(f"Processing {symbol} …")
-        avar = get_avar_for_symbol(symbol, r)
-        results.append((symbol, avar))
+        avar, one_sided = get_avar_for_symbol(symbol, r)
+        results.append((symbol, avar, one_sided))
         if avar is not None:
-            print(f"  [{symbol}] AVAR = {avar:.6f}")
+            warn = "  ⚠ one-sided strike coverage" if one_sided else ""
+            print(f"  [{symbol}] AVAR = {avar:.6f}{warn}")
         else:
             print(f"  [{symbol}] AVAR = N/A")
         print()
@@ -228,9 +231,14 @@ def main() -> None:
     print(bar)
     print(f"  {'Symbol':<10}  {'AVAR':>10}  {'Recommended Strategy'}")
     print(bar)
-    for symbol, avar in results:
+    for symbol, avar, one_sided in results:
         avar_str = f"{avar:.6f}" if avar is not None else "N/A"
-        strategy = recommend_strategy(avar) if avar is not None else "N/A"
+        if avar is None:
+            strategy = "N/A"
+        elif one_sided:
+            strategy = f"{recommend_strategy(avar)}  ⚠ unreliable (one-sided)"
+        else:
+            strategy = recommend_strategy(avar)
         print(f"  {symbol:<10}  {avar_str:>10}  {strategy}")
     print(bar)
 
